@@ -42,6 +42,72 @@ export class TasksService {
       `Creating new task with description: ${createTaskDto.description}`,
     );
 
+    // Set default model to fallback if none provided
+    let defaultModel = createTaskDto.model;
+    if (!defaultModel) {
+      const proxyUrl = this.configService.get<string>('BYTEBOT_LLM_PROXY_URL');
+      const geminiApiKey = this.configService.get<string>('GEMINI_API_KEY');
+      const anthropicApiKey = this.configService.get<string>('ANTHROPIC_API_KEY');
+      const openaiApiKey = this.configService.get<string>('OPENAI_API_KEY');
+
+      // Try to set a default model based on available providers
+      // Default: Always prefer Ollama first, then Gemini as fallback
+      // Use fallback provider if Ollama proxy is available (even if not explicitly set, defaults to localhost:4000)
+      const effectiveProxyUrl =
+        proxyUrl || 'http://localhost:4000'; // Default to local LiteLLM proxy
+      
+      if (effectiveProxyUrl) {
+        const ollamaModel = this.configService.get<string>(
+          'OLLAMA_MODEL',
+          'ollama/llama3.1',
+        );
+        defaultModel = {
+          provider: 'fallback',
+          name: ollamaModel,
+          title: 'Ollama (with Fallback to Gemini)',
+          contextWindow: 128000,
+        };
+        this.logger.debug(
+          `No model specified, using default Ollama model with Gemini fallback: ${ollamaModel}`,
+        );
+      } else if (geminiApiKey) {
+        defaultModel = {
+          provider: 'google',
+          name: this.configService.get<string>('GEMINI_MODEL', 'gemini-2.0-flash-exp'),
+          title: 'Gemini Flash',
+          contextWindow: 1000000,
+        };
+        this.logger.debug('No model specified, using default Google Gemini model');
+      } else if (anthropicApiKey) {
+        defaultModel = {
+          provider: 'anthropic',
+          name: this.configService.get<string>('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022'),
+          title: 'Claude Sonnet',
+          contextWindow: 200000,
+        };
+        this.logger.debug('No model specified, using default Anthropic model');
+      } else if (openaiApiKey) {
+        defaultModel = {
+          provider: 'openai',
+          name: this.configService.get<string>('OPENAI_MODEL', 'gpt-4o'),
+          title: 'GPT-4o',
+          contextWindow: 128000,
+        };
+        this.logger.debug('No model specified, using default OpenAI model');
+      } else {
+        // No providers available - use a placeholder that will fail gracefully
+        defaultModel = {
+          provider: 'proxy',
+          name: 'no-provider-configured',
+          title: 'No Provider Configured',
+          contextWindow: 0,
+        };
+        this.logger.warn(
+          'No model specified and no AI providers configured. Task will fail when executed.',
+        );
+      }
+    }
+
     const task = await this.prisma.$transaction(async (prisma) => {
       // Create the task first
       this.logger.debug('Creating task record in database');
@@ -52,7 +118,7 @@ export class TasksService {
           priority: createTaskDto.priority || TaskPriority.MEDIUM,
           status: TaskStatus.PENDING,
           createdBy: createTaskDto.createdBy || Role.USER,
-          model: createTaskDto.model,
+          model: defaultModel,
           ...(createTaskDto.scheduledFor
             ? { scheduledFor: createTaskDto.scheduledFor }
             : {}),

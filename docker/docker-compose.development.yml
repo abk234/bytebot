@@ -30,7 +30,7 @@ services:
     container_name: bytebot-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5433:5432"  # Using 5433 externally to avoid conflict with local postgres
     environment:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_USER=postgres

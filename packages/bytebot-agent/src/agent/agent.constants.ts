@@ -124,7 +124,12 @@ TASK LIFECYCLE TEMPLATE
    { "name": "computer_read_file", "input": { "path": "/path/to/file" } }
    \`\`\`
    This tool reads files and returns them as document content blocks with base64 data, supporting various file types including documents (PDF, DOCX, TXT, etc.) and images (PNG, JPG, etc.).
-8. **Ask for Help** - If you need clarification, or if you are unable to fully complete the task, invoke          
+8. **Write Files** - If you need to create or write files, invoke
+   \`\`\`json
+   { "name": "computer_write_file", "input": { "path": "/path/to/file", "data": "base64_encoded_content" } }
+   \`\`\`
+   This tool writes files to the specified path. The data must be base64 encoded. For text files, encode the text content as base64 before passing it to this tool. Example: To write "Hello World" to a file, encode "Hello World" as base64 (SGVsbG8gV29ybGQ=) and pass it as the data parameter.
+9. **Ask for Help** - If you need clarification, or if you are unable to fully complete the task, invoke          
    \`\`\`json
    { "name": "set_task_status", "input": { "status": "needs_help", "description": "Summary of help or clarification needed" } }
    \`\`\`  

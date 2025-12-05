@@ -20,6 +20,7 @@ import {
   isApplicationToolUseBlock,
   isPasteTextToolUseBlock,
   isReadFileToolUseBlock,
+  isWriteFileToolUseBlock,
 } from '@bytebot/shared';
 import { Logger } from '@nestjs/common';
 
@@ -174,6 +175,39 @@ export async function handleComputerToolUse(
             {
               type: MessageContentType.Text,
               text: result.message || 'Error reading file',
+            },
+          ],
+          is_error: true,
+        };
+      }
+    }
+
+    if (isWriteFileToolUseBlock(block)) {
+      logger.debug(`Writing file: ${block.input.path}`);
+      const result = await writeFile({
+        path: block.input.path,
+        content: block.input.data, // data is already base64 encoded
+      });
+
+      if (result.success) {
+        return {
+          type: MessageContentType.ToolResult,
+          tool_use_id: block.id,
+          content: [
+            {
+              type: MessageContentType.Text,
+              text: result.message || 'File written successfully',
+            },
+          ],
+        };
+      } else {
+        return {
+          type: MessageContentType.ToolResult,
+          tool_use_id: block.id,
+          content: [
+            {
+              type: MessageContentType.Text,
+              text: result.message || 'Error writing file',
             },
           ],
           is_error: true,

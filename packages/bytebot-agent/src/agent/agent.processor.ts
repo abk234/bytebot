@@ -31,6 +31,7 @@ import {
   BytebotAgentModel,
   BytebotAgentService,
   BytebotAgentResponse,
+  BytebotAgentInterrupt,
 } from './agent.types';
 import {
   AGENT_SYSTEM_PROMPT,
@@ -39,6 +40,8 @@ import {
 import { SummariesService } from '../summaries/summaries.service';
 import { handleComputerToolUse } from './agent.computer-use';
 import { ProxyService } from '../proxy/proxy.service';
+import { AgentFallbackService } from './agent.fallback.service';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AgentProcessor {
@@ -47,6 +50,7 @@ export class AgentProcessor {
   private isProcessing = false;
   private abortController: AbortController | null = null;
   private services: Record<string, BytebotAgentService> = {};
+  private readonly useFallback: boolean;
 
   constructor(
     private readonly tasksService: TasksService,
@@ -57,6 +61,8 @@ export class AgentProcessor {
     private readonly googleService: GoogleService,
     private readonly proxyService: ProxyService,
     private readonly inputCaptureService: InputCaptureService,
+    private readonly fallbackService: AgentFallbackService,
+    private readonly configService: ConfigService,
   ) {
     this.services = {
       anthropic: this.anthropicService,
@@ -64,7 +70,13 @@ export class AgentProcessor {
       google: this.googleService,
       proxy: this.proxyService,
     };
-    this.logger.log('AgentProcessor initialized');
+    // Enable fallback mode by default, can be disabled via env var
+    this.useFallback =
+      this.configService.get<string>('USE_FALLBACK_PROVIDERS', 'true') ===
+      'true';
+    this.logger.log(
+      `AgentProcessor initialized with fallback mode: ${this.useFallback}`,
+    );
   }
 
   /**
@@ -185,26 +197,120 @@ export class AgentProcessor {
       const model = task.model as unknown as BytebotAgentModel;
       let agentResponse: BytebotAgentResponse;
 
-      const service = this.services[model.provider];
-      if (!service) {
-        this.logger.warn(
-          `No service found for model provider: ${model.provider}`,
-        );
-        await this.tasksService.update(taskId, {
-          status: TaskStatus.FAILED,
-        });
-        this.isProcessing = false;
-        this.currentTaskId = null;
-        return;
-      }
+      // Use fallback service if enabled and provider is "fallback" or if primary fails
+      const useFallbackMode =
+        this.useFallback &&
+        (model.provider === 'fallback' || model.provider === 'proxy');
 
-      agentResponse = await service.generateMessage(
-        AGENT_SYSTEM_PROMPT,
-        messages,
-        model.name,
-        true,
-        this.abortController.signal,
-      );
+      if (useFallbackMode) {
+        try {
+          this.logger.debug(
+            `Using fallback service for task ${taskId} with model ${model.name}`,
+          );
+          agentResponse = await this.fallbackService.generateMessage(
+            AGENT_SYSTEM_PROMPT,
+            messages,
+            model.name,
+            true,
+            this.abortController.signal,
+          );
+        } catch (error: any) {
+          this.logger.error(
+            `Fallback service failed for task ${taskId}: ${error.message}`,
+            error.stack,
+          );
+          await this.tasksService.update(taskId, {
+            status: TaskStatus.FAILED,
+            error: `Fallback service failed: ${error.message}`,
+          });
+          this.isProcessing = false;
+          this.currentTaskId = null;
+          return;
+        }
+      } else {
+        // Use direct provider service
+        const service = this.services[model.provider];
+        if (!service) {
+          // If direct service not found and fallback is enabled, try fallback
+          if (this.useFallback) {
+            this.logger.warn(
+              `No direct service found for provider: ${model.provider}, trying fallback`,
+            );
+            try {
+              agentResponse = await this.fallbackService.generateMessage(
+                AGENT_SYSTEM_PROMPT,
+                messages,
+                model.name,
+                true,
+                this.abortController.signal,
+              );
+            } catch (error: any) {
+              this.logger.error(
+                `Fallback service also failed: ${error.message}`,
+                error.stack,
+              );
+              await this.tasksService.update(taskId, {
+                status: TaskStatus.FAILED,
+                error: `All providers failed: ${error.message}`,
+              });
+              this.isProcessing = false;
+              this.currentTaskId = null;
+              return;
+            }
+          } else {
+            this.logger.warn(
+              `No service found for model provider: ${model.provider}`,
+            );
+            await this.tasksService.update(taskId, {
+              status: TaskStatus.FAILED,
+              error: `No service found for provider: ${model.provider}`,
+            });
+            this.isProcessing = false;
+            this.currentTaskId = null;
+            return;
+          }
+        } else {
+          try {
+            agentResponse = await service.generateMessage(
+              AGENT_SYSTEM_PROMPT,
+              messages,
+              model.name,
+              true,
+              this.abortController.signal,
+            );
+          } catch (error: any) {
+            // If direct service fails and fallback is enabled, try fallback
+            if (this.useFallback && !(error instanceof BytebotAgentInterrupt)) {
+              this.logger.warn(
+                `Direct provider ${model.provider} failed: ${error.message}, trying fallback`,
+              );
+              try {
+                agentResponse = await this.fallbackService.generateMessage(
+                  AGENT_SYSTEM_PROMPT,
+                  messages,
+                  model.name,
+                  true,
+                  this.abortController.signal,
+                );
+              } catch (fallbackError: any) {
+                this.logger.error(
+                  `Fallback service also failed: ${fallbackError.message}`,
+                  fallbackError.stack,
+                );
+                await this.tasksService.update(taskId, {
+                  status: TaskStatus.FAILED,
+                  error: `All providers failed: ${fallbackError.message}`,
+                });
+                this.isProcessing = false;
+                this.currentTaskId = null;
+                return;
+              }
+            } else {
+              throw error;
+            }
+          }
+        }
+      }
 
       const messageContentBlocks = agentResponse.contentBlocks;
 
@@ -239,7 +345,12 @@ export class AgentProcessor {
       if (shouldSummarize) {
         try {
           // After we've successfully generated a response, we can summarize the unsummarized messages
-          const summaryResponse = await service.generateMessage(
+          // Use the same service that was used for the main response
+          const summaryService = useFallbackMode
+            ? this.fallbackService
+            : this.services[model.provider] || this.fallbackService;
+
+          const summaryResponse = await summaryService.generateMessage(
             SUMMARIZATION_SYSTEM_PROMPT,
             [
               ...messages,

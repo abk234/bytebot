@@ -24,7 +24,8 @@ const geminiApiKey = process.env.GEMINI_API_KEY;
 const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
 const openaiApiKey = process.env.OPENAI_API_KEY;
 
-const proxyUrl = process.env.BYTEBOT_LLM_PROXY_URL;
+// Default to localhost:4000 if not set (matches ProxyService default)
+const proxyUrl = process.env.BYTEBOT_LLM_PROXY_URL || 'http://localhost:4000';
 
 const models = [
   ...(anthropicApiKey ? ANTHROPIC_MODELS : []),
@@ -68,46 +69,98 @@ export class TasksController {
 
   @Get('models')
   async getModels() {
-    if (proxyUrl) {
-      try {
-        const response = await fetch(`${proxyUrl}/model/info`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
+    const allModels: BytebotAgentModel[] = [];
 
-        if (!response.ok) {
-          throw new HttpException(
-            `Failed to fetch models from proxy: ${response.statusText}`,
-            HttpStatus.BAD_GATEWAY,
-          );
-        }
+    // Always try to add Ollama models (default proxy URL is localhost:4000)
+    const ollamaModel = process.env.OLLAMA_MODEL || 'ollama/llama3.2';
+    
+    // Add fallback model as first option
+    allModels.push({
+      provider: 'fallback',
+      name: ollamaModel,
+      title: 'Ollama (with Fallback to Gemini)',
+      contextWindow: 128000,
+    });
 
+    // Try to fetch models from LiteLLM proxy
+    try {
+      const response = await fetch(`${proxyUrl}/model/info`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        // Add timeout to avoid hanging
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (response.ok) {
         const proxyModels = await response.json();
 
         // Map proxy response to BytebotAgentModel format
-        const models: BytebotAgentModel[] = proxyModels.data.map(
-          (model: any) => ({
-            provider: 'proxy',
-            name: model.litellm_params.model,
-            title: model.model_name,
-            contextWindow: 128000,
-          }),
-        );
+        if (proxyModels.data && Array.isArray(proxyModels.data)) {
+          const proxyModelList: BytebotAgentModel[] = proxyModels.data.map(
+            (model: any) => ({
+              provider: 'proxy',
+              name: model.litellm_params?.model || model.model_name,
+              title: model.model_name || model.litellm_params?.model || 'Unknown',
+              contextWindow: 128000,
+            }),
+          );
 
-        return models;
-      } catch (error) {
-        if (error instanceof HttpException) {
-          throw error;
+          allModels.push(...proxyModelList);
         }
-        throw new HttpException(
-          `Error fetching models: ${error.message}`,
-          HttpStatus.INTERNAL_SERVER_ERROR,
+      }
+    } catch (error: any) {
+      // If proxy is not available, try to fetch directly from Ollama
+      console.warn(
+        `Could not fetch models from LiteLLM proxy (${proxyUrl}): ${error.message}`,
+      );
+      console.log(
+        'Tip: Start LiteLLM proxy with: litellm --config litellm-config.yaml --port 4000',
+      );
+
+      // Fallback: Try to get models directly from Ollama API
+      try {
+        const ollamaResponse = await fetch('http://localhost:11434/api/tags', {
+          method: 'GET',
+          signal: AbortSignal.timeout(3000),
+        });
+
+        if (ollamaResponse.ok) {
+          const ollamaData = await ollamaResponse.json();
+          if (ollamaData.models && Array.isArray(ollamaData.models)) {
+            const ollamaModelList: BytebotAgentModel[] = ollamaData.models.map(
+              (model: any) => ({
+                provider: 'proxy',
+                name: `ollama/${model.name}`,
+                title: model.name,
+                contextWindow: 128000,
+              }),
+            );
+
+            // Add Ollama models (skip duplicates)
+            ollamaModelList.forEach((model) => {
+              if (
+                !allModels.some(
+                  (m) => m.name === model.name || m.title === model.title,
+                )
+              ) {
+                allModels.push(model);
+              }
+            });
+          }
+        }
+      } catch (ollamaError: any) {
+        console.warn(
+          `Could not fetch models from Ollama: ${ollamaError.message}`,
         );
       }
     }
-    return models;
+
+    // Add other configured models
+    allModels.push(...models);
+
+    return allModels;
   }
 
   @Get(':id')

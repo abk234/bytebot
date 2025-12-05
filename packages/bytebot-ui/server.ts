@@ -4,13 +4,19 @@ import { createProxyServer } from "http-proxy";
 import next from "next";
 import { createServer } from "http";
 import dotenv from "dotenv";
+import { resolve } from "path";
 
-// Load environment variables
-dotenv.config();
+// Load environment variables from project root
+// When running from packages/bytebot-ui, go up two levels to find .env
+const projectRoot = resolve(process.cwd(), "../..");
+const envPath = resolve(projectRoot, ".env");
+dotenv.config({ path: envPath });
+console.log(`📄 Loading .env from: ${envPath}`);
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "localhost";
-const port = parseInt(process.env.PORT || "9992", 10);
+// UI always uses port 9992 (agent uses 9991)
+const port = 9992;
 
 // Backend URLs
 const BYTEBOT_AGENT_BASE_URL = process.env.BYTEBOT_AGENT_BASE_URL;

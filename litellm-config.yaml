@@ -1,0 +1,57 @@
+model_list:
+  # Llama models
+  - model_name: llama3.2
+    litellm_params:
+      model: ollama/llama3.2
+  - model_name: llama3.1
+    litellm_params:
+      model: ollama/llama3.1
+  - model_name: llama3.3
+    litellm_params:
+      model: ollama/llama3.3
+  - model_name: llama3.3-70b
+    litellm_params:
+      model: ollama/llama3.3:70b-instruct-q4_K_M
+  
+  # Coding models
+  - model_name: deepseek-coder
+    litellm_params:
+      model: ollama/deepseek-coder:33b
+  - model_name: deepseek-coder-v2
+    litellm_params:
+      model: ollama/deepseek-coder-v2:latest
+  - model_name: deepseek-r1
+    litellm_params:
+      model: ollama/deepseek-r1:latest
+  - model_name: codestral
+    litellm_params:
+      model: ollama/codestral:latest
+  - model_name: devstral
+    litellm_params:
+      model: ollama/devstral:24b
+  - model_name: codellama
+    litellm_params:
+      model: ollama/codellama:34b
+  - model_name: qwen2.5-coder
+    litellm_params:
+      model: ollama/qwen2.5-coder:latest
+  
+  # General models
+  - model_name: mistral
+    litellm_params:
+      model: ollama/mistral:latest
+  - model_name: qwen2.5
+    litellm_params:
+      model: ollama/qwen2.5:7b-instruct-q4_K_M
+  - model_name: qwen3
+    litellm_params:
+      model: ollama/qwen3:latest
+  - model_name: gemma3
+    litellm_params:
+      model: ollama/gemma3:latest
+  - model_name: gpt-oss
+    litellm_params:
+      model: ollama/gpt-oss:20b
+  - model_name: plutus
+    litellm_params:
+      model: ollama/0xroyce/plutus:latest

@@ -382,6 +382,29 @@ export const _readFileTool = {
 };
 
 /**
+ * Tool definition for writing files
+ */
+export const _writeFileTool = {
+  name: 'computer_write_file',
+  description:
+    'Writes a file to the specified path with base64 encoded data. Use this to create or overwrite files.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      path: {
+        type: 'string' as const,
+        description: 'The file path where the file should be written (e.g., "/home/user/Desktop/test.txt")',
+      },
+      data: {
+        type: 'string' as const,
+        description: 'Base64 encoded file data to write. The text content should be base64 encoded before passing to this tool.',
+      },
+    },
+    required: ['path', 'data'],
+  },
+};
+
+/**
  * Export all tools as an array
  */
 export const agentTools = [
@@ -402,4 +425,5 @@ export const agentTools = [
   _setTaskStatusTool,
   _createTaskTool,
   _readFileTool,
+  _writeFileTool,
 ];

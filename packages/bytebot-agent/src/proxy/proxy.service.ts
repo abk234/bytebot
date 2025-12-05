@@ -31,13 +31,14 @@ export class ProxyService implements BytebotAgentService {
   private readonly logger = new Logger(ProxyService.name);
 
   constructor(private readonly configService: ConfigService) {
-    const proxyUrl = this.configService.get<string>('BYTEBOT_LLM_PROXY_URL');
+    // Default to local LiteLLM proxy if not explicitly set
+    const proxyUrl =
+      this.configService.get<string>('BYTEBOT_LLM_PROXY_URL') ||
+      'http://localhost:4000';
 
-    if (!proxyUrl) {
-      this.logger.warn(
-        'BYTEBOT_LLM_PROXY_URL is not set. ProxyService will not work properly.',
-      );
-    }
+    this.logger.log(
+      `ProxyService initialized with proxy URL: ${proxyUrl} (default: http://localhost:4000)`,
+    );
 
     // Initialize OpenAI client with proxy configuration
     this.openai = new OpenAI({
@@ -62,13 +63,20 @@ export class ProxyService implements BytebotAgentService {
       messages,
     );
     try {
+      // Check if model supports reasoning (o1, o3, deepseek-r1, etc.)
+      const supportsReasoning = 
+        model.includes('o1') || 
+        model.includes('o3') || 
+        model.includes('deepseek-r1') ||
+        model.includes('qwen3');
+
       // Prepare the Chat Completion request
       const completionRequest: OpenAI.Chat.ChatCompletionCreateParams = {
         model,
         messages: chatMessages,
         max_tokens: 8192,
         ...(useTools && { tools: proxyTools }),
-        reasoning_effort: 'high',
+        ...(supportsReasoning && { reasoning_effort: 'high' }),
       };
 
       // Make the API call

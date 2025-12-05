@@ -11,6 +11,12 @@ import { GoogleModule } from '../google/google.module';
 import { SummariesModule } from 'src/summaries/summaries.modue';
 import { AgentAnalyticsService } from './agent.analytics';
 import { ProxyModule } from 'src/proxy/proxy.module';
+import { AgentFallbackService } from './agent.fallback.service';
+import { AnthropicService } from '../anthropic/anthropic.service';
+import { OpenAIService } from '../openai/openai.service';
+import { GoogleService } from '../google/google.service';
+import { ProxyService } from '../proxy/proxy.service';
+import { ConfigService } from '@nestjs/config';
 
 @Module({
   imports: [
@@ -28,7 +34,32 @@ import { ProxyModule } from 'src/proxy/proxy.module';
     AgentScheduler,
     InputCaptureService,
     AgentAnalyticsService,
+    {
+      provide: AgentFallbackService,
+      useFactory: (
+        configService: ConfigService,
+        anthropicService: AnthropicService,
+        openaiService: OpenAIService,
+        googleService: GoogleService,
+        proxyService: ProxyService,
+      ) => {
+        const services = {
+          anthropic: anthropicService,
+          openai: openaiService,
+          google: googleService,
+          proxy: proxyService,
+        };
+        return new AgentFallbackService(configService, services);
+      },
+      inject: [
+        ConfigService,
+        AnthropicService,
+        OpenAIService,
+        GoogleService,
+        ProxyService,
+      ],
+    },
   ],
-  exports: [AgentProcessor],
+  exports: [AgentProcessor, AgentFallbackService],
 })
 export class AgentModule {}
